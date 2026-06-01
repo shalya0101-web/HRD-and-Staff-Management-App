@@ -1375,7 +1375,7 @@ export default function ESS() {
     if (Object.keys(shiftLabels).length === 0) {
       const { data: sd } = await supabase.from('shift_settings').select('kode, nama, jam_mulai, jam_selesai')
       const map = {}
-      ;(sd || []).forEach(s => { map[s.kode] = `${s.nama} (${s.jam_mulai}-${s.jam_selesai})` })
+      ;(sd || []).forEach(s => { map[s.kode] = s.kode === 'full' ? s.nama : `${s.nama} (${s.jam_mulai}-${s.jam_selesai})` })
       setShiftLabels(map)
     }
   }
