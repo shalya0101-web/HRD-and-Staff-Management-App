@@ -31,6 +31,7 @@ export default function Attendance() {
   const [attendance, setAttendance] = useState([])
   const [todaySchedule, setTodaySchedule] = useState([])
   const [shifts, setShifts] = useState([])
+  const [checkoutTarget, setCheckoutTarget] = useState(null)
   const [selectedEmp, setSelectedEmp] = useState('')
   const [selectedOutletCheckin, setSelectedOutletCheckin] = useState('')
   const [locating, setLocating] = useState(false)
@@ -229,7 +230,7 @@ export default function Attendance() {
 
   // ─── CHECK-IN / CHECK-OUT ──────────────────────────────────
 
-  async function mulaiAbsen() {
+  async function mulaiAbsen(tipeAbsen) {
     if (!selectedEmp) { setError('Pilih nama Anda terlebih dahulu.'); return }
     if (!selectedOutletCheckin) { setError('Pilih outlet tempat Anda bertugas.'); return }
 
@@ -248,21 +249,48 @@ export default function Attendance() {
         setLocating(false); return
       }
 
-      // Simpan GPS sementara, lalu buka kamera
       setPendingGps({ lat, lng, jarak: jarakBulat, outletData })
 
-      // Cek tipe absen (checkin atau checkout)
-      const { data: existing } = await supabase.from('attendance')
-        .select('id, waktu_masuk, waktu_keluar')
-        .eq('employee_id', selectedEmp).eq('tanggal', todayStr)
-        .eq('outlet_id', selectedOutletCheckin).single()
-
-      if (existing?.waktu_keluar) {
-        setError('Anda sudah check-in dan check-out di outlet ini hari ini.')
-        setLocating(false); return
+      if (tipeAbsen === 'checkout') {
+        // Cari record terbuka (masuk tapi belum keluar): hari ini dulu, lalu mundur 3 hari
+        let rec = null
+        const { data: today_rec } = await supabase.from('attendance')
+          .select('id, waktu_masuk, waktu_keluar, tanggal')
+          .eq('employee_id', selectedEmp).eq('tanggal', todayStr)
+          .eq('outlet_id', selectedOutletCheckin).maybeSingle()
+        if (today_rec?.waktu_masuk && !today_rec.waktu_keluar) {
+          rec = today_rec
+        } else {
+          const tigaHari = new Date(today); tigaHari.setDate(tigaHari.getDate() - 3)
+          const dariStr = `${tigaHari.getFullYear()}-${String(tigaHari.getMonth()+1).padStart(2,'0')}-${String(tigaHari.getDate()).padStart(2,'0')}`
+          const { data: open } = await supabase.from('attendance')
+            .select('id, waktu_masuk, waktu_keluar, tanggal')
+            .eq('employee_id', selectedEmp).eq('outlet_id', selectedOutletCheckin)
+            .gte('tanggal', dariStr).lt('tanggal', todayStr)
+            .is('waktu_keluar', null).not('waktu_masuk', 'is', null)
+            .order('tanggal', { ascending: false }).limit(1)
+          rec = open && open[0] ? open[0] : null
+        }
+        if (!rec) {
+          setError('Tidak ada absen masuk yang perlu di-checkout. Lakukan Absen Masuk dulu.')
+          setLocating(false); return
+        }
+        setCheckoutTarget(rec)
+        setCaptureType('checkout')
+      } else {
+        // Absen masuk = hari piket baru
+        const { data: rec } = await supabase.from('attendance')
+          .select('id, waktu_masuk')
+          .eq('employee_id', selectedEmp).eq('tanggal', todayStr)
+          .eq('outlet_id', selectedOutletCheckin).maybeSingle()
+        if (rec?.waktu_masuk) {
+          setError('Anda sudah absen masuk hari ini di outlet ini.')
+          setLocating(false); return
+        }
+        setCheckoutTarget(null)
+        setCaptureType('checkin')
       }
 
-      setCaptureType(existing ? 'checkout' : 'checkin')
       setFotoBlob(null); setFotoPreview(null)
       setShowCamera(true)
       setTimeout(() => startCamera(), 100)
@@ -280,17 +308,12 @@ export default function Attendance() {
     try {
       const fotoUrl = await uploadFoto(selectedEmp, captureType)
 
-      const { data: existing } = await supabase.from('attendance')
-        .select('id, waktu_masuk, waktu_keluar')
-        .eq('employee_id', selectedEmp).eq('tanggal', todayStr)
-        .eq('outlet_id', selectedOutletCheckin).single()
-
-      if (captureType === 'checkout' && existing) {
+      if (captureType === 'checkout' && checkoutTarget) {
         const { error: err } = await supabase.from('attendance').update({
           waktu_keluar: new Date().toISOString(),
           lat_keluar: lat, lng_keluar: lng,
           foto_keluar: fotoUrl,
-        }).eq('id', existing.id)
+        }).eq('id', checkoutTarget.id)
         if (err) throw new Error(err.message)
       } else {
         // Tentukan shift staff hari ini (dari jadwal, fallback default staff)
@@ -493,14 +516,18 @@ export default function Attendance() {
               )}
 
               {!fotoPreview && !showCamera && (
-                <button onClick={mulaiAbsen}
-                  disabled={locating || !selectedEmp || !selectedOutletCheckin || !!todayRecord?.waktu_keluar}
-                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white py-3 rounded-xl text-sm font-medium transition-colors">
-                  {locating ? '📍 Mengambil lokasi GPS...' :
-                    !todayRecord ? '📍 Check-in Sekarang' :
-                    !todayRecord.waktu_keluar ? '📍 Check-out Sekarang' :
-                    'Sudah selesai hari ini'}
-                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => mulaiAbsen('checkin')}
+                    disabled={locating || !selectedEmp || !selectedOutletCheckin}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white py-3 rounded-xl text-sm font-medium transition-colors">
+                    {locating ? '📍 ...' : '📥 Absen Masuk'}
+                  </button>
+                  <button onClick={() => mulaiAbsen('checkout')}
+                    disabled={locating || !selectedEmp || !selectedOutletCheckin}
+                    className="bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white py-3 rounded-xl text-sm font-medium transition-colors">
+                    {locating ? '📍 ...' : '📤 Absen Pulang'}
+                  </button>
+                </div>
               )}
               <p className="text-xs text-gray-400 text-center mt-2">Pastikan GPS dan kamera aktif di browser Anda</p>
             </div>

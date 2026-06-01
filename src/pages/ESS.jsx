@@ -1292,6 +1292,7 @@ export default function ESS() {
   const [jarakInfo, setJarakInfo] = useState(null)
   const [showCamera, setShowCamera] = useState(false)
   const [captureType, setCaptureType] = useState(null)
+  const [essShifts, setEssShifts] = useState([])
   const [fotoPreview, setFotoPreview] = useState(null)
   const [fotoBlob, setFotoBlob] = useState(null)
   const [cameraReady, setCameraReady] = useState(false)
@@ -1373,10 +1374,11 @@ export default function ESS() {
     }
     setUpcomingShifts(schedules.map(s => ({ ...s, outletNama: outletMap[s.outlet_id] || '' })))
     if (Object.keys(shiftLabels).length === 0) {
-      const { data: sd } = await supabase.from('shift_settings').select('kode, nama, jam_mulai, jam_selesai')
+      const { data: sd } = await supabase.from('shift_settings').select('*')
       const map = {}
       ;(sd || []).forEach(s => { map[s.kode] = s.kode === 'full' ? s.nama : `${s.nama} (${s.jam_mulai}-${s.jam_selesai})` })
       setShiftLabels(map)
+      setEssShifts(sd || [])
     }
   }
 
@@ -1461,7 +1463,7 @@ export default function ESS() {
     return urlData.publicUrl
   }
 
-  async function mulaiAbsen() {
+  async function mulaiAbsen(tipeAbsen) {
     if (!selectedOutletAbsen) { setError('Pilih outlet tempat bertugas.'); return }
     const outletData = outletList.find(o => o.id === selectedOutletAbsen)
     if (!outletData?.lat || !outletData?.lng) { setError('Koordinat outlet belum diatur. Hubungi HR.'); return }
@@ -1480,13 +1482,38 @@ export default function ESS() {
         setError(`Anda berada ${jarak}m dari ${outletData.nama}. Maksimal ${RADIUS_METER}m.`)
         setLocating(false); return
       }
-      const todayStr = new Date().toISOString().split('T')[0]
-      const { data: existing } = await supabase.from('attendance')
-        .select('id, waktu_masuk, waktu_keluar').eq('employee_id', employee.id)
-        .eq('tanggal', todayStr).eq('outlet_id', selectedOutletAbsen).single()
-      if (existing?.waktu_keluar) { setError('Sudah check-in dan check-out hari ini.'); setLocating(false); return }
-      setPendingGps({ lat: pos.lat, lng: pos.lng, jarak, outletData, existing })
-      setCaptureType(existing ? 'checkout' : 'checkin')
+      const now = new Date()
+      const todayStr = now.toISOString().split('T')[0]
+
+      if (tipeAbsen === 'checkout') {
+        // Cari record terbuka: hari ini dulu, lalu mundur 3 hari
+        let rec = null
+        const { data: today_rec } = await supabase.from('attendance')
+          .select('id, waktu_masuk, waktu_keluar, tanggal').eq('employee_id', employee.id)
+          .eq('tanggal', todayStr).eq('outlet_id', selectedOutletAbsen).maybeSingle()
+        if (today_rec?.waktu_masuk && !today_rec.waktu_keluar) {
+          rec = today_rec
+        } else {
+          const tigaHari = new Date(now); tigaHari.setDate(tigaHari.getDate() - 3)
+          const dariStr = tigaHari.toISOString().split('T')[0]
+          const { data: open } = await supabase.from('attendance')
+            .select('id, waktu_masuk, waktu_keluar, tanggal').eq('employee_id', employee.id)
+            .eq('outlet_id', selectedOutletAbsen).gte('tanggal', dariStr).lt('tanggal', todayStr)
+            .is('waktu_keluar', null).not('waktu_masuk', 'is', null)
+            .order('tanggal', { ascending: false }).limit(1)
+          rec = open && open[0] ? open[0] : null
+        }
+        if (!rec) { setError('Tidak ada absen masuk yang perlu di-checkout. Lakukan Absen Masuk dulu.'); setLocating(false); return }
+        setPendingGps({ lat: pos.lat, lng: pos.lng, jarak, outletData, existing: rec })
+        setCaptureType('checkout')
+      } else {
+        const { data: rec } = await supabase.from('attendance')
+          .select('id, waktu_masuk').eq('employee_id', employee.id)
+          .eq('tanggal', todayStr).eq('outlet_id', selectedOutletAbsen).maybeSingle()
+        if (rec?.waktu_masuk) { setError('Anda sudah absen masuk hari ini di outlet ini.'); setLocating(false); return }
+        setPendingGps({ lat: pos.lat, lng: pos.lng, jarak, outletData, existing: null })
+        setCaptureType('checkin')
+      }
       setFotoBlob(null); setFotoPreview(null)
       setShowCamera(true); setTimeout(() => startCamera(), 100)
     } catch (e) { setError(e.message) }
@@ -1505,13 +1532,30 @@ export default function ESS() {
           waktu_keluar: new Date().toISOString(), lat_keluar: lat, lng_keluar: lng, foto_keluar: fotoUrl,
         }).eq('id', existing.id)
       } else {
+        const sched = upcomingShifts.find(s => s.tanggal === todayStr && s.outlet_id === selectedOutletAbsen)
+        const shiftKode = sched?.shift || employee.default_shift || 'full'
+        const now = new Date()
+        let menitTerlambat = 0, potonganTerlambat = 0
+        const sd = (essShifts || []).find(s => s.kode === shiftKode)
+        if (sd) {
+          const [jh, jm] = (sd.jam_mulai || '08:00').split(':').map(Number)
+          const batas = new Date(now); batas.setHours(jh, jm + (sd.toleransi_menit || 0), 0, 0)
+          const menit = Math.round((now - batas) / 60000)
+          if (menit > 0) {
+            menitTerlambat = menit
+            potonganTerlambat = Math.ceil(menit / (sd.interval_menit || 30)) * (sd.potongan_per_interval || 0)
+            const maks = sd.potongan_maks_harian || 0
+            if (maks > 0 && potonganTerlambat > maks) potonganTerlambat = maks
+          }
+        }
         await supabase.from('attendance').insert({
           employee_id: employee.id, outlet_id: selectedOutletAbsen, tanggal: todayStr,
           waktu_masuk: new Date().toISOString(), lat_masuk: lat, lng_masuk: lng,
           foto_masuk: fotoUrl, status: 'hadir',
+          shift: shiftKode, menit_terlambat: menitTerlambat, potongan_terlambat: potonganTerlambat,
         })
       }
-      setSuccess(captureType === 'checkin' ? '✓ Check-in berhasil!' : '✓ Check-out berhasil!')
+      setSuccess(captureType === 'checkin' ? '✓ Absen masuk berhasil!' : '✓ Absen pulang berhasil!')
       setFotoBlob(null); setFotoPreview(null); setPendingGps(null)
       fetchTodayRecord(); fetchAllData()
     } catch (e) { setError(e.message) }
@@ -1880,11 +1924,16 @@ export default function ESS() {
                   </button>
                 </div>
               )}
-              <button onClick={mulaiAbsen} disabled={locating || showCamera || uploadingFoto}
-                className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-3 rounded-xl text-sm font-medium transition-colors mb-4">
-                {locating ? 'Mengambil Lokasi...' :
-                  todayRecord && !todayRecord.waktu_keluar ? 'Check-out Sekarang' : 'Check-in Sekarang'}
-              </button>
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                <button onClick={() => mulaiAbsen('checkin')} disabled={locating || showCamera || uploadingFoto}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-3 rounded-xl text-sm font-medium transition-colors">
+                  {locating ? '...' : '📥 Absen Masuk'}
+                </button>
+                <button onClick={() => mulaiAbsen('checkout')} disabled={locating || showCamera || uploadingFoto}
+                  className="bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white py-3 rounded-xl text-sm font-medium transition-colors">
+                  {locating ? '...' : '📤 Absen Pulang'}
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
               {attendance.map(a => (
