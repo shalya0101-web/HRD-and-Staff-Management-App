@@ -104,7 +104,10 @@ export default function Attendance() {
     if (menit <= 0) return { menit: 0, potongan: 0, shift: shiftKode }
     const interval = shift.interval_menit || 30
     const perInterval = shift.potongan_per_interval || 0
-    const potongan = Math.ceil(menit / interval) * perInterval
+    let potongan = Math.ceil(menit / interval) * perInterval
+    // Batasi maks per hari (0 = tanpa batas)
+    const maks = shift.potongan_maks_harian || 0
+    if (maks > 0 && potongan > maks) potongan = maks
     return { menit, potongan, shift: shiftKode }
   }
 

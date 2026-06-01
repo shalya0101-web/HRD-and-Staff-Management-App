@@ -136,6 +136,7 @@ export default function CompanySettings() {
         toleransi_menit: parseInt(s.toleransi_menit) || 0,
         interval_menit: parseInt(s.interval_menit) || 30,
         potongan_per_interval: parseFloat(s.potongan_per_interval) || 0,
+        potongan_maks_harian: parseFloat(s.potongan_maks_harian) || 0,
         aktif: s.aktif !== false,
       }).eq('id', s.id)
       if (error) { setError('Gagal simpan shift: ' + error.message); setSavingShift(false); return }
@@ -623,7 +624,7 @@ export default function CompanySettings() {
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-5">
           <h2 className="text-base font-semibold text-gray-800 mb-1">Pengaturan Shift Kerja</h2>
           <p className="text-xs text-gray-500 mb-4">
-            Atur jam kerja & potongan keterlambatan per shift. Keterlambatan dihitung dari jam mulai + toleransi; tiap kelipatan interval kena potongan. Berlaku global semua outlet.
+            Atur jam kerja & potongan keterlambatan per shift. Keterlambatan dihitung dari jam mulai + toleransi; tiap kelipatan interval kena potongan, dibatasi maks/hari (0 = tanpa batas). Berlaku global semua outlet.
           </p>
           <div className="space-y-3">
             {shifts.map(s => (
@@ -637,7 +638,7 @@ export default function CompanySettings() {
                     <span className="text-xs text-gray-600">Aktif</span>
                   </label>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Jam Mulai</label>
                     <input type="time" value={s.jam_mulai}
@@ -666,6 +667,12 @@ export default function CompanySettings() {
                     <label className="block text-xs text-gray-500 mb-1">Potongan/Interval (Rp)</label>
                     <input type="number" min="0" value={s.potongan_per_interval}
                       onChange={e => updateShiftField(s.id, 'potongan_per_interval', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Maks/Hari (Rp)</label>
+                    <input type="number" min="0" value={s.potongan_maks_harian || 0}
+                      onChange={e => updateShiftField(s.id, 'potongan_maks_harian', e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm" />
                   </div>
                 </div>
