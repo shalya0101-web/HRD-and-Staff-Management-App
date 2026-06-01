@@ -1263,6 +1263,7 @@ export default function ESS() {
 
   const [schedules, setSchedules] = useState([])
   const [upcomingShifts, setUpcomingShifts] = useState([])
+  const [shiftLabels, setShiftLabels] = useState({})
   const [attendance, setAttendance] = useState([])
   const [payrolls, setPayrolls] = useState([])
   const [companyInfo, setCompanyInfo] = useState(null)
@@ -1371,6 +1372,12 @@ export default function ESS() {
       ;(od || []).forEach(o => { outletMap[o.id] = o.nama })
     }
     setUpcomingShifts(schedules.map(s => ({ ...s, outletNama: outletMap[s.outlet_id] || '' })))
+    if (Object.keys(shiftLabels).length === 0) {
+      const { data: sd } = await supabase.from('shift_settings').select('kode, nama, jam_mulai, jam_selesai')
+      const map = {}
+      ;(sd || []).forEach(s => { map[s.kode] = `${s.nama} (${s.jam_mulai}-${s.jam_selesai})` })
+      setShiftLabels(map)
+    }
   }
 
   async function fetchAllData() {
@@ -1756,6 +1763,7 @@ export default function ESS() {
                             {tgl.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}
                           </p>
                           <p className="text-xs text-gray-500">{s.outletNama} · {s.role_slot}{s.is_temporary ? ' · 🔀 Sementara' : ''}</p>
+                          {s.shift && shiftLabels[s.shift] && <p className="text-xs text-blue-600 mt-0.5">🕐 {shiftLabels[s.shift]}</p>}
                         </div>
                         <span className={`text-xs px-2 py-1 rounded-full font-medium ${diffDays===0?'bg-red-100 text-red-700':diffDays===1?'bg-orange-100 text-orange-700':'bg-amber-100 text-amber-700'}`}>
                           {labelHari}

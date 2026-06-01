@@ -149,7 +149,7 @@ export default function Payroll() {
     const lastDay = new Date(tahun, bulan, 0).getDate()
     const to = `${tahun}-${String(bulan).padStart(2,'0')}-${lastDay}`
     const { data } = await supabase.from('attendance')
-      .select('employee_id, waktu_masuk, status').gte('tanggal', from).lte('tanggal', to)
+      .select('employee_id, waktu_masuk, status, potongan_terlambat, menit_terlambat, shift').gte('tanggal', from).lte('tanggal', to)
       .eq('outlet_id', activeOutlet)
     setAttendance(data || [])
   }
@@ -167,17 +167,10 @@ export default function Payroll() {
   // ─── KALKULASI ────────────────────────────────────────────
 
   function hitungPotonganAbsensi(empId) {
-    if (!deductionSetting) return 0
-    const [bH, bM] = (deductionSetting.batas_jam||'12:00:00').split(':').map(Number)
-    const batasMenit = bH * 60 + bM
+    // Pakai potongan_terlambat yang sudah dihitung per shift saat absensi (Tahap 4)
     let total = 0
-    attendance.filter(a => a.employee_id === empId && a.waktu_masuk).forEach(a => {
-      const w = new Date(a.waktu_masuk)
-      const menit = w.getHours()*60 + w.getMinutes()
-      if (menit > batasMenit) {
-        const telat = menit - batasMenit
-        total += Math.floor(telat / (deductionSetting.interval_menit||30)) * (deductionSetting.potongan_per_interval||10000)
-      }
+    attendance.filter(a => a.employee_id === empId).forEach(a => {
+      total += a.potongan_terlambat || 0
     })
     return total
   }
