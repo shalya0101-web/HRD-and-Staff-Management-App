@@ -117,8 +117,13 @@ function OutletKalender({ outlet, employee, bulan, tahun }) {
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden w-full">
         <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-3 flex justify-between items-center">
           <div>
-            <p className="text-white font-semibold text-sm">{outlet.nama}</p>
-            <p className="text-blue-200 text-xs">{BULAN_JADWAL[bulan-1]} {tahun}</p>
+            <p className="text-white font-semibold text-sm">
+              {outlet.terdaftar === false && <span title="Penugasan sementara">🔀 </span>}
+              {outlet.nama}
+            </p>
+            <p className="text-blue-200 text-xs">
+              {outlet.terdaftar === false ? 'Penugasan sementara · ' : ''}{BULAN_JADWAL[bulan-1]} {tahun}
+            </p>
           </div>
           <div className="text-right">
             <p className="text-white font-bold text-lg">{myPiketCount}</p>
@@ -217,11 +222,24 @@ function ESSJadwal({ employee, bulan, tahun }) {
 
   async function fetchMyOutlets() {
     if (!employee) return
+    // Outlet tempat staff terdaftar (bisa untuk ajukan jadwal)
     const { data } = await supabase
       .from('employee_outlets')
       .select('outlet_id, outlets(id, nama)')
       .eq('employee_id', employee.id)
-    const list = (data || []).map(r => r.outlets).filter(Boolean)
+    const list = (data || []).map(r => r.outlets).filter(Boolean).map(o => ({ ...o, terdaftar: true }))
+    const idSet = new Set(list.map(o => o.id))
+
+    // Outlet tempat staff punya jadwal (termasuk penugasan sementara lintas area) - hanya untuk lihat
+    const { data: schedOutlets } = await supabase.from('schedules')
+      .select('outlet_id').eq('employee_id', employee.id)
+    const extraIds = [...new Set((schedOutlets || []).map(s => s.outlet_id).filter(id => id && !idSet.has(id)))]
+    if (extraIds.length > 0) {
+      const { data: extraOutlets } = await supabase.from('outlets')
+        .select('id, nama').in('id', extraIds)
+      ;(extraOutlets || []).forEach(o => { list.push({ ...o, terdaftar: false }); idSet.add(o.id) })
+    }
+
     setMyOutlets(list)
     if (list.length > 0) setSelectedOutlet(list[0].id)
   }
@@ -686,18 +704,24 @@ function ESSJadwal({ employee, bulan, tahun }) {
         ))}
       </div>
 
-      {/* PERUBAHAN 4: Tombol buka/tutup form — logika lockedOutlet dihapus */}
+      {/* Tombol buka/tutup form — hanya untuk outlet terdaftar */}
       <div className="flex items-stretch gap-2">
-        <button
-          onClick={() => {
-            setShowRequestForm(!showRequestForm)
-            setError('')
-            setSuccess('')
-          }}
-          className="flex-1 border border-blue-300 text-blue-600 hover:bg-blue-50 py-2.5 rounded-xl text-sm font-medium"
-        >
-          {showRequestForm ? '✕ Tutup Form' : '+ Ajukan Jadwal Piket'}
-        </button>
+        {myOutlets.find(o => o.id === selectedOutlet)?.terdaftar !== false ? (
+          <button
+            onClick={() => {
+              setShowRequestForm(!showRequestForm)
+              setError('')
+              setSuccess('')
+            }}
+            className="flex-1 border border-blue-300 text-blue-600 hover:bg-blue-50 py-2.5 rounded-xl text-sm font-medium"
+          >
+            {showRequestForm ? '✕ Tutup Form' : '+ Ajukan Jadwal Piket'}
+          </button>
+        ) : (
+          <div className="flex-1 border border-gray-200 bg-gray-50 text-gray-400 py-2.5 rounded-xl text-xs text-center flex items-center justify-center">
+            🔀 Penugasan sementara — hanya bisa dilihat
+          </div>
+        )}
         <button onClick={printMyJadwal}
           className="border border-gray-300 text-gray-600 hover:bg-gray-50 py-2.5 px-5 rounded-xl text-sm font-medium">
           Print
