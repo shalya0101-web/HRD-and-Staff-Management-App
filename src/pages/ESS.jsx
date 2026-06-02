@@ -688,11 +688,37 @@ function ESSJadwal({ employee, bulan, tahun }) {
     <div className="space-y-4">
 
       {myOutlets.length > 1 && (
-        <div className="flex items-center justify-center gap-2">
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => {
+              const newIdx = Math.max(0, activeIdx - 1)
+              setActiveIdx(newIdx); setSelectedOutlet(myOutlets[newIdx].id)
+              const slider = sliderRef.current
+              if (slider) slider.scrollTo({ left: slider.children[newIdx].offsetLeft - slider.offsetLeft, behavior: 'smooth' })
+            }}
+            disabled={activeIdx === 0}
+            className="w-8 h-8 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 flex items-center justify-center text-sm">
+            ←
+          </button>
           {myOutlets.map((o, i) => (
-            <button key={o.id} onClick={() => { setActiveIdx(i); setSelectedOutlet(o.id) }}
+            <button key={o.id} onClick={() => {
+              setActiveIdx(i); setSelectedOutlet(o.id)
+              const slider = sliderRef.current
+              if (slider && slider.children[i]) slider.scrollTo({ left: slider.children[i].offsetLeft - slider.offsetLeft, behavior: 'smooth' })
+            }}
               className={`transition-all rounded-full ${activeIdx === i ? 'w-6 h-2 bg-blue-600' : 'w-2 h-2 bg-gray-300'}`} />
           ))}
+          <button
+            onClick={() => {
+              const newIdx = Math.min(myOutlets.length - 1, activeIdx + 1)
+              setActiveIdx(newIdx); setSelectedOutlet(myOutlets[newIdx].id)
+              const slider = sliderRef.current
+              if (slider) slider.scrollTo({ left: slider.children[newIdx].offsetLeft - slider.offsetLeft, behavior: 'smooth' })
+            }}
+            disabled={activeIdx === myOutlets.length - 1}
+            className="w-8 h-8 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 flex items-center justify-center text-sm">
+            →
+          </button>
         </div>
       )}
 
