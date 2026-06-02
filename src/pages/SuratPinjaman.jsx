@@ -127,7 +127,7 @@ function generateSuratHTML(loan, employee, companyInfo, isApproved) {
     .status-approved { background: #d1fae5; color: #065f46; border: 1px solid #059669; }
 
     @media print {
-      body { background: white; }
+      body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .no-print { display: none !important; }
       .page { padding: 15mm 20mm; }
     }
@@ -225,11 +225,15 @@ function generateSuratHTML(loan, employee, companyInfo, isApproved) {
         <div style="font-size:9pt;color:#777;margin-bottom:4px">
           ${isApproved && loan.tgl_disetujui ? tglDisetujui : '&nbsp;'}
         </div>
-        <div class="ttd-img-container">
+        <div class="ttd-img-container" style="position:relative">
+          ${isApproved && companyInfo?.logo_url
+            ? `<img src="${companyInfo.logo_url}" alt="Stempel" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);height:80px;opacity:0.22;object-fit:contain;pointer-events:none" />`
+            : ''
+          }
           ${isApproved && companyInfo?.ttd_direktur
-            ? `<img src="${companyInfo.ttd_direktur}" class="ttd-img" alt="TTD Direktur" />`
+            ? `<img src="${companyInfo.ttd_direktur}" class="ttd-img" alt="TTD Direktur" style="position:relative;z-index:1" />`
             : isApproved
-              ? `<div style="font-family:'Times New Roman',serif;font-size:22pt;font-style:italic;color:#1e40af;border-bottom:1px solid #1e40af;padding:0 8px">${companyInfo?.direktur?.split(' ')[0] || 'Direktur'}</div>`
+              ? `<div style="font-family:'Times New Roman',serif;font-size:22pt;font-style:italic;color:#1e40af;border-bottom:1px solid #1e40af;padding:0 8px;position:relative;z-index:1">${companyInfo?.direktur?.split(' ')[0] || 'Direktur'}</div>`
               : `<div class="ttd-empty">Tanda tangan</div>`
           }
         </div>

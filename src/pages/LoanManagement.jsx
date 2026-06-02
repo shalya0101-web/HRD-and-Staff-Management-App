@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import SuratPinjaman from './SuratPinjaman'
+import { useAuth } from '../lib/AuthContext'
 
 const FMT = n => new Intl.NumberFormat('id-ID').format(n || 0)
 const BULAN_NAMES = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
 const today = new Date()
 
 export default function LoanManagement() {
+  const { isDirektur } = useAuth()
   const [tab, setTab] = useState('cicilan') // 'cicilan' | 'kasbon' | 'arisan'
   const [employees, setEmployees] = useState([])
   const [loans, setLoans] = useState([])
@@ -14,14 +15,12 @@ export default function LoanManagement() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [suratLoanId, setSuratLoanId] = useState(null)
-  const [suratEmployee, setSuratEmployee] = useState(null)
 
   // Form cicilan/kasbon baru (HR input manual)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({
     employee_id: '', jenis: 'cicilan', jumlah: '',
-    jumlah_bulan: 1, tgl_mulai: '', keterangan: '', status: 'approved'
+    jumlah_bulan: 1, tgl_mulai: '', keterangan: '', status: 'pending'
   })
 
   useEffect(() => { fetchAll() }, [tab])
@@ -73,13 +72,22 @@ export default function LoanManagement() {
     const { error } = await supabase.from('loans').insert(payload)
     if (error) { setError('Gagal simpan: ' + error.message); return }
     setSuccess('Data berhasil disimpan!')
-    setForm({ employee_id:'', jenis: tab === 'kasbon' ? 'kasbon' : 'cicilan', jumlah:'', jumlah_bulan:1, tgl_mulai:'', keterangan:'', status:'approved' })
+    setForm({ employee_id:'', jenis: tab === 'kasbon' ? 'kasbon' : 'cicilan', jumlah:'', jumlah_bulan:1, tgl_mulai:'', keterangan:'', status:'pending' })
     setShowForm(false)
     fetchLoans()
   }
 
   async function updateStatus(id, status) {
-    await supabase.from('loans').update({ status }).eq('id', id)
+    // Approve hanya boleh direktur
+    if (status === 'approved' && !isDirektur) {
+      setError('Hanya Direktur yang dapat menyetujui pengajuan pinjaman.')
+      return
+    }
+    const payload = { status }
+    if (status === 'approved') {
+      payload.tgl_disetujui = new Date().toISOString().split('T')[0]
+    }
+    await supabase.from('loans').update(payload).eq('id', id)
     fetchLoans()
     setSuccess(`Status berhasil diubah ke ${status}`)
   }
@@ -205,7 +213,7 @@ export default function LoanManagement() {
                 <label className="text-xs font-medium text-gray-600 block mb-1">Status</label>
                 <select value={form.status} onChange={e => setForm({...form, status: e.target.value})}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="approved">Approved — langsung aktif</option>
+                  {isDirektur && <option value="approved">Approved — langsung aktif</option>}
                   <option value="pending">Pending — menunggu persetujuan</option>
                 </select>
               </div>
@@ -269,20 +277,13 @@ export default function LoanManagement() {
                               loan.status==='rejected'?'bg-red-100 text-red-600':
                               'bg-yellow-100 text-yellow-700'}`}>
                             <option value="pending">Pending</option>
-                            <option value="approved">Approved</option>
+                            {(isDirektur || loan.status==='approved') && <option value="approved">Approved</option>}
                             <option value="rejected">Rejected</option>
                             <option value="lunas">Lunas</option>
                           </select>
                         </td>
                         <td className="px-4 py-3">
                           <button onClick={()=>hapusLoan(loan.id)} className="text-red-500 text-xs hover:underline">Hapus</button>
-                          <button onClick={() => {
-                            setSuratLoanId(loan.id)
-                            setSuratEmployee(loan.employees)
-                          }}
-                            className="text-blue-600 text-xs hover:underline">
-                            📄 Surat
-                          </button>
                         </td>
                       </tr>
                     ))
@@ -329,7 +330,7 @@ export default function LoanManagement() {
                               loan.status==='rejected'?'bg-red-100 text-red-600':
                               'bg-yellow-100 text-yellow-700'}`}>
                             <option value="pending">Pending</option>
-                            <option value="approved">Approved</option>
+                            {(isDirektur || loan.status==='approved') && <option value="approved">Approved</option>}
                             <option value="rejected">Rejected</option>
                             <option value="lunas">Lunas</option>
                           </select>
@@ -399,23 +400,6 @@ export default function LoanManagement() {
           </div>
         )}
       </div>
-      {suratLoanId && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-50 rounded-2xl w-full max-w-lg max-h-screen overflow-y-auto">
-            <div className="flex justify-between items-center px-5 py-4 border-b border-gray-200 bg-white rounded-t-2xl">
-              <p className="font-semibold text-gray-900">Surat Pengajuan Pinjaman</p>
-              <button onClick={() => setSuratLoanId(null)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
-            </div>
-            <div className="p-4">
-              <SuratPinjaman
-                loanId={suratLoanId}
-                employee={suratEmployee}
-                onClose={() => setSuratLoanId(null)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
