@@ -93,8 +93,13 @@ function OutletKalender({ outlet, employee, bulan, tahun }) {
     return `${tahun}-${String(bulan).padStart(2,'0')}-${String(day).padStart(2,'0')}`
   }
 
+  const ROLE_ORDER = ['dokter','perawat_1','perawat_2','lab','admin','assist','cs']
   function getSchedulesForDate(day) {
     return schedules.filter(s => s.tanggal === getDateStr(day))
+      .sort((a, b) => {
+        const ia = ROLE_ORDER.indexOf(a.role_slot); const ib = ROLE_ORDER.indexOf(b.role_slot)
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+      })
   }
 
   function isMySchedule(day) {
@@ -158,9 +163,11 @@ function OutletKalender({ outlet, employee, bulan, tahun }) {
                     <div key={s.id} className={`text-xs px-1 py-0.5 rounded leading-tight ${
                       s.employee_id === employee.id
                         ? 'bg-green-200 text-green-800 font-medium'
+                        : s.is_temporary
+                        ? 'bg-orange-100 text-orange-700'
                         : ROLE_COLORS[s.role_slot] || 'bg-gray-100 text-gray-600'
                     }`} style={{ fontSize: '10px' }}>
-                      {s.employees?.nama}
+                      {s.is_temporary && '🔀 '}{s.employees?.nama}
                     </div>
                   ))}
                   {req?.status === 'pending' && (
