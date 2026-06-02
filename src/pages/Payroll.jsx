@@ -27,6 +27,9 @@ export default function Payroll() {
   const [attendance, setAttendance] = useState([])
   const [deductionSetting, setDeductionSetting] = useState(null)
   const [overtimeRates, setOvertimeRates] = useState([])
+  const [sipRates, setSipRates] = useState([])
+  const [sipOtomatis, setSipOtomatis] = useState(false)
+  const [employeesSip, setEmployeesSip] = useState({})
   const [loading, setLoading] = useState(false)
   const [loadingGenerate, setLoadingGenerate] = useState(false)
   const [refreshCounter, setRefreshCounter] = useState(0)
@@ -50,7 +53,41 @@ export default function Payroll() {
   useEffect(() => { if (selectedArea && mode === 'area') fetchAreaData() }, [bulan, tahun, selectedArea, mode])
 
   async function fetchBase() {
-    await Promise.all([fetchDeductionSetting(), fetchOvertimeRates(), fetchAllowances()])
+    await Promise.all([fetchDeductionSetting(), fetchOvertimeRates(), fetchAllowances(), fetchSipRates(), fetchSipSetting(), fetchEmployeesSip()])
+  }
+
+  async function fetchSipRates() {
+    const { data } = await supabase.from('sip_rates').select('*').order('jabatan')
+    setSipRates(data || [])
+  }
+
+  async function fetchSipSetting() {
+    if (!activeOutlet) return
+    const { data } = await supabase.from('sip_settings').select('*').eq('outlet_id', activeOutlet).maybeSingle()
+    setSipOtomatis(data?.sip_otomatis || false)
+  }
+
+  async function fetchEmployeesSip() {
+    const { data } = await supabase.from('employees').select('id, jumlah_sip, jabatan')
+    const map = {}
+    ;(data||[]).forEach(e => { map[e.id] = { jumlah_sip: e.jumlah_sip || 0, jabatan: e.jabatan } })
+    setEmployeesSip(map)
+  }
+
+  async function simpanSipRate(rate) {
+    await supabase.from('sip_rates').update({ nominal_per_sip: rate.nominal_per_sip }).eq('id', rate.id)
+    fetchSipRates(); setSuccess('Nominal SIP tersimpan!')
+  }
+
+  async function toggleSipOtomatis(val) {
+    const { data: existing } = await supabase.from('sip_settings').select('id').eq('outlet_id', activeOutlet).maybeSingle()
+    if (existing) {
+      await supabase.from('sip_settings').update({ sip_otomatis: val }).eq('outlet_id', activeOutlet)
+    } else {
+      await supabase.from('sip_settings').insert({ outlet_id: activeOutlet, sip_otomatis: val })
+    }
+    setSipOtomatis(val)
+    setSuccess(`SIP otomatis ${val ? 'diaktifkan' : 'dinonaktifkan'}`)
   }
 
   async function fetchActiveLoans(empIds) {
@@ -180,6 +217,16 @@ export default function Payroll() {
     return total
   }
 
+  function hitungSip(emp, allow) {
+    // SIP otomatis: jumlah SIP staff × nominal SIP jabatan. Kalau off: pakai nilai manual (allowances.sip)
+    if (sipOtomatis) {
+      const jumlah = employeesSip[emp.id]?.jumlah_sip || 0
+      const rate = sipRates.find(r => r.jabatan === emp.jabatan)
+      return jumlah * (rate?.nominal_per_sip || 0)
+    }
+    return allow?.sip || 0
+  }
+
   function hitungLembur(emp) {
     // Hari yang dijadwalkan untuk staff ini
     const jadwalHari = schedules.filter(s => s.employee_id === emp.id)
@@ -290,7 +337,7 @@ export default function Payroll() {
           gaji_pokok: emp.gaji_pokok||0,
           tunjangan_makan: allow.makan||0, tunjangan_transport: allow.transport||0,
           tunjangan_telephone: allow.telephone||0, tunjangan_jabatan_pj: allow.jabatan_pj||0,
-          tunjangan_jabatan_lain: allow.jabatan_lain||0, sip: allow.sip||0,
+          tunjangan_jabatan_lain: allow.jabatan_lain||0, sip: hitungSip(emp, allow),
           lembur: hitungLembur(emp),
           potongan_bpjs: (() => {
             if (!bpjsSettings) return 0
@@ -817,6 +864,39 @@ export default function Payroll() {
               </div>
             </div>
 
+            {/* ─── PENGATURAN SIP ─── */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-base font-semibold text-gray-800">Gaji SIP (Surat Izin Praktik)</h2>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <span className="text-xs text-gray-600">{sipOtomatis ? 'Otomatis' : 'Manual'}</span>
+                  <button type="button" onClick={() => toggleSipOtomatis(!sipOtomatis)}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${sipOtomatis ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${sipOtomatis ? 'translate-x-5' : ''}`} />
+                  </button>
+                </label>
+              </div>
+              <p className="text-xs text-gray-500 mb-4">
+                {sipOtomatis
+                  ? 'SIP otomatis: gaji SIP = jumlah SIP staff (di data pegawai) × nominal SIP jabatan di bawah.'
+                  : 'SIP manual: nominal SIP diinput per staff di tabel Tunjangan per Staff.'}
+              </p>
+              {sipOtomatis && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {sipRates.map(rate => (
+                    <div key={rate.id} className="flex items-center gap-3">
+                      <span className="text-sm text-gray-700 w-44 flex-shrink-0">{rate.jabatan}</span>
+                      <input type="number" value={rate.nominal_per_sip||0}
+                        onChange={e=>setSipRates(sipRates.map(r=>r.id===rate.id?{...r,nominal_per_sip:Number(e.target.value)}:r))}
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <button onClick={()=>simpanSipRate(rate)} className="text-blue-600 text-xs hover:underline whitespace-nowrap">Simpan</button>
+                    </div>
+                  ))}
+                  {sipRates.length === 0 && <p className="text-xs text-gray-400">Belum ada data jabatan.</p>}
+                </div>
+              )}
+            </div>
+
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <h2 className="text-base font-semibold text-gray-800 mb-4">Tunjangan per Staff · {activeOutletData?.nama}</h2>
               <div className="overflow-x-auto">
@@ -835,9 +915,15 @@ export default function Payroll() {
                           <td className="px-3 py-2 text-gray-500 text-xs">{emp.jabatan}</td>
                           {['sip','makan','transport','telephone','jabatan_pj','jabatan_lain'].map(f=>(
                             <td key={f} className="px-2 py-1">
-                              <input type="number" value={allow[f]||0}
-                                onChange={e=>setAllowances({...allowances,[emp.id]:{...allow,[f]:Number(e.target.value)}})}
-                                className="w-24 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                              {f === 'sip' && sipOtomatis ? (
+                                <div className="w-24 px-2 py-1 text-xs text-gray-500 bg-gray-50 rounded border border-gray-200" title="SIP otomatis aktif">
+                                  {FMT(hitungSip(emp, allow))}
+                                </div>
+                              ) : (
+                                <input type="number" value={allow[f]||0}
+                                  onChange={e=>setAllowances({...allowances,[emp.id]:{...allow,[f]:Number(e.target.value)}})}
+                                  className="w-24 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                              )}
                             </td>
                           ))}
                           <td className="px-3 py-2">
