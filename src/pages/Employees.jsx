@@ -12,7 +12,7 @@ const KOSONG = {
   tgl_masuk: '', no_hp: '', email: '',
   status: 'aktif', gaji_pokok: '', piket_per_bulan: 15, level_akses: 'staff',
   ikut_bpjs_kesehatan: true, ikut_bpjs_naker: true, bpjs_tanggungan_tambahan: 0,
-  status_ptkp: 'TK/0', punya_npwp: true, default_shift: 'full',
+  status_ptkp: 'TK/0', punya_npwp: true, default_shift: 'full', outlet_utama_id: '',
 }
 
 const DEPARTEMEN = ['Dokter','Perawat','Bidan','Farmasi','Administrasi','Laboratorium','Radiologi','Gizi','Umum','Assist']
@@ -104,7 +104,8 @@ export default function Employees() {
       bpjs_tanggungan_tambahan: parseInt(form.bpjs_tanggungan_tambahan) || 0,
       status_ptkp: form.status_ptkp || 'TK/0',
       punya_npwp: form.punya_npwp !== false,
-      default_shift: form.default_shift || 'full'
+      default_shift: form.default_shift || 'full',
+      outlet_utama_id: form.outlet_utama_id || (selectedOutlets.length === 1 ? selectedOutlets[0] : selectedOutlets[0] || null)
     }
 
     let empId = editId
@@ -237,6 +238,7 @@ export default function Employees() {
             status_ptkp: r.status_ptkp || 'TK/0',
             punya_npwp: r.punya_npwp !== false,
             default_shift: r.default_shift || 'full',
+            outlet_utama_id: r.outlet_utama_id || '',
             gaji_pokok: r.gaji_pokok ? Number(r.gaji_pokok) : null,
             piket_per_bulan: r.piket_per_bulan ? Number(r.piket_per_bulan) : 15,
           })
@@ -543,6 +545,22 @@ export default function Employees() {
                 </div>
                 {selectedOutlets.length > 0 && (
                   <p className="text-xs text-blue-600 mt-1">{selectedOutlets.length} outlet dipilih</p>
+                )}
+                {selectedOutlets.length > 1 && (
+                  <div className="mt-3">
+                    <label className="text-xs font-medium text-gray-600 block mb-1">
+                      Outlet Utama (penanggung gaji) <span className="text-gray-400">— untuk staff multi-outlet</span>
+                    </label>
+                    <select value={form.outlet_utama_id || ''}
+                      onChange={e => setForm({...form, outlet_utama_id: e.target.value})}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">-- Pilih outlet utama --</option>
+                      {outlets.filter(o => selectedOutlets.includes(o.id)).map(o => (
+                        <option key={o.id} value={o.id}>{o.nama}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">Gaji hanya dibebankan & muncul di payroll outlet utama ini, mencegah gaji dobel.</p>
+                  </div>
                 )}
               </div>
             </div>

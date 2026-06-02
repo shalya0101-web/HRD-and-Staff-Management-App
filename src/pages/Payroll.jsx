@@ -117,9 +117,13 @@ export default function Payroll() {
 
   async function fetchEmployees() {
     const { data } = await supabase.from('employee_outlets')
-      .select('employee_id, employees(id, nama, jabatan, departemen, gaji_pokok, piket_per_bulan, status, ikut_bpjs_kesehatan, ikut_bpjs_naker, bpjs_tanggungan_tambahan, status_ptkp, punya_npwp)')
+      .select('employee_id, employees(id, nama, jabatan, departemen, gaji_pokok, piket_per_bulan, status, ikut_bpjs_kesehatan, ikut_bpjs_naker, bpjs_tanggungan_tambahan, status_ptkp, punya_npwp, outlet_utama_id)')
       .eq('outlet_id', activeOutlet)
-    setEmployees((data||[]).map(r=>r.employees).filter(e=>e?.status==='aktif'))
+    // Hanya staff yang OUTLET UTAMA-nya = outlet aktif (cegah gaji dobel untuk staff multi-outlet).
+    // Fallback: kalau outlet_utama_id belum diset, tetap tampilkan (kompatibilitas data lama).
+    setEmployees((data||[]).map(r=>r.employees).filter(e =>
+      e?.status==='aktif' && (!e.outlet_utama_id || e.outlet_utama_id === activeOutlet)
+    ))
   }
 
   async function fetchAllowances() {
@@ -148,9 +152,10 @@ export default function Payroll() {
     const from = `${tahun}-${String(bulan).padStart(2,'0')}-01`
     const lastDay = new Date(tahun, bulan, 0).getDate()
     const to = `${tahun}-${String(bulan).padStart(2,'0')}-${lastDay}`
+    // Tidak filter outlet: absensi staff dihitung lintas outlet (untuk lembur & potongan yang akurat
+    // bagi staff multi-outlet yang digaji di outlet utamanya).
     const { data } = await supabase.from('attendance')
       .select('employee_id, tanggal, waktu_masuk, status, potongan_terlambat, menit_terlambat, shift').gte('tanggal', from).lte('tanggal', to)
-      .eq('outlet_id', activeOutlet)
     setAttendance(data || [])
   }
 
