@@ -142,11 +142,15 @@ export default function HRAnalytics() {
       const records = absensiData.filter(a => a.employee_id === emp.id)
       const hadir = records.filter(a => a.status === 'hadir').length
       const total = records.length
+      // Penugasan sementara: ada jadwal is_temporary=true untuk staff ini
+      const tempScheds = piketData.filter(p => p.employee_id === emp.id && p.is_temporary === true)
+      const isTemp = tempScheds.length > 0
       return {
         nama: emp.nama, jabatan: emp.jabatan,
         hadir, izin: records.filter(a => ['izin','sakit'].includes(a.status)).length,
         alpha: records.filter(a => a.status === 'alpha').length,
         total, persen: total > 0 ? Math.round(hadir/total*100) : 0,
+        isTemp, tempCount: tempScheds.length,
       }
     }).sort((a,b) => b.persen - a.persen)
   }
@@ -313,7 +317,7 @@ export default function HRAnalytics() {
     <h2>Rekap Kehadiran per Staff</h2>
     <table><thead><tr><th>Nama</th><th>Jabatan</th><th>Hadir</th><th>Izin/Sakit</th><th>Alpha</th><th>% Hadir</th></tr></thead>
     <tbody>${getAbsensiByEmployee().map(r => `<tr>
-      <td>${r.nama}</td><td>${r.jabatan}</td>
+      <td>${r.isTemp?'🔀 ':''}${r.nama}${r.isTemp?' (sementara)':''}</td><td>${r.jabatan}</td>
       <td style="color:#059669;font-weight:600">${r.hadir}</td>
       <td style="color:#d97706">${r.izin}</td>
       <td style="color:#dc2626">${r.alpha}</td>
@@ -567,7 +571,11 @@ export default function HRAnalytics() {
                         ? <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">Tidak ada data.</td></tr>
                         : getAbsensiByEmployee().map((r,i) => (
                           <tr key={i} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 font-medium text-gray-900">{r.nama}</td>
+                            <td className="px-4 py-3 font-medium text-gray-900">
+                              {r.isTemp && <span className="text-blue-500 mr-1" title={`Penugasan sementara (${r.tempCount} hari)`}>🔀</span>}
+                              {r.nama}
+                              {r.isTemp && <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">sementara</span>}
+                            </td>
                             <td className="px-4 py-3 text-gray-500 text-xs">{r.jabatan}</td>
                             <td className="px-4 py-3 text-green-600 font-medium">{r.hadir}</td>
                             <td className="px-4 py-3 text-yellow-600">{r.izin}</td>
