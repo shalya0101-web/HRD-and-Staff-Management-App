@@ -101,7 +101,7 @@ export default function Payroll() {
 
     // Ambil semua employee di area ini
     const { data: empOutlets } = await supabase.from('employee_outlets')
-      .select('employee_id, outlet_id, employees(id, nama, jabatan, gaji_pokok, piket_per_bulan, status, ikut_bpjs_kesehatan, ikut_bpjs_naker, bpjs_tanggungan_tambahan, status_ptkp, punya_npwp)')
+      .select('employee_id, outlet_id, employees(id, nama, jabatan, departemen, gaji_pokok, piket_per_bulan, status, ikut_bpjs_kesehatan, ikut_bpjs_naker, bpjs_tanggungan_tambahan, status_ptkp, punya_npwp)')
       .in('outlet_id', outletIds)
     const emps = (empOutlets || []).map(r => ({...r.employees, outlet_id: r.outlet_id})).filter(e => e?.status === 'aktif')
     // Deduplicate by employee id
@@ -117,7 +117,7 @@ export default function Payroll() {
 
   async function fetchEmployees() {
     const { data } = await supabase.from('employee_outlets')
-      .select('employee_id, employees(id, nama, jabatan, gaji_pokok, piket_per_bulan, status, ikut_bpjs_kesehatan, ikut_bpjs_naker, bpjs_tanggungan_tambahan, status_ptkp, punya_npwp)')
+      .select('employee_id, employees(id, nama, jabatan, departemen, gaji_pokok, piket_per_bulan, status, ikut_bpjs_kesehatan, ikut_bpjs_naker, bpjs_tanggungan_tambahan, status_ptkp, punya_npwp)')
       .eq('outlet_id', activeOutlet)
     setEmployees((data||[]).map(r=>r.employees).filter(e=>e?.status==='aktif'))
   }
@@ -139,7 +139,7 @@ export default function Payroll() {
     const from = `${tahun}-${String(bulan).padStart(2,'0')}-01`
     const lastDay = new Date(tahun, bulan, 0).getDate()
     const to = `${tahun}-${String(bulan).padStart(2,'0')}-${lastDay}`
-    const { data } = await supabase.from('schedules').select('employee_id')
+    const { data } = await supabase.from('schedules').select('employee_id, tanggal')
       .gte('tanggal', from).lte('tanggal', to)
     setSchedules(data || [])
   }
@@ -149,7 +149,7 @@ export default function Payroll() {
     const lastDay = new Date(tahun, bulan, 0).getDate()
     const to = `${tahun}-${String(bulan).padStart(2,'0')}-${lastDay}`
     const { data } = await supabase.from('attendance')
-      .select('employee_id, waktu_masuk, status, potongan_terlambat, menit_terlambat, shift').gte('tanggal', from).lte('tanggal', to)
+      .select('employee_id, tanggal, waktu_masuk, status, potongan_terlambat, menit_terlambat, shift').gte('tanggal', from).lte('tanggal', to)
       .eq('outlet_id', activeOutlet)
     setAttendance(data || [])
   }
@@ -176,8 +176,13 @@ export default function Payroll() {
   }
 
   function hitungLembur(emp) {
-    const total = schedules.filter(s => s.employee_id === emp.id).length
-    const lebih = Math.max(0, total - (emp.piket_per_bulan||15))
+    // Hari yang dijadwalkan untuk staff ini
+    const jadwalHari = schedules.filter(s => s.employee_id === emp.id)
+    // Hanya hitung hari jadwal yang DISERTAI absen masuk
+    const hariKerjaSah = jadwalHari.filter(s =>
+      attendance.some(a => a.employee_id === emp.id && a.tanggal === s.tanggal && a.waktu_masuk)
+    ).length
+    const lebih = Math.max(0, hariKerjaSah - (emp.piket_per_bulan||15))
     const rate = overtimeRates.find(r => r.jabatan === emp.jabatan)
     return lebih * (rate?.nominal_per_hari || 0)
   }
@@ -792,7 +797,8 @@ export default function Payroll() {
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="text-base font-semibold text-gray-800 mb-4">Nominal Lembur per Jabatan</h2>
+              <h2 className="text-base font-semibold text-gray-800 mb-1">Nominal Lembur per Jabatan</h2>
+              <p className="text-xs text-gray-500 mb-4">Lembur = (hari kerja dengan absen masuk melebihi target piket) × nominal per jabatan.</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {overtimeRates.map(rate => (
                   <div key={rate.id} className="flex items-center gap-3">
