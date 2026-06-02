@@ -711,7 +711,7 @@ export default function Scheduling() {
 
           {/* ─── TAB PENGAJUAN ─── */}
           {canApprove && (
-            <div>
+            <div className="mt-8 pt-6 border-t border-gray-200">
               <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
                 {REQUEST_GROUPS.map(group => {
 
