@@ -440,14 +440,59 @@ export default function Scheduling() {
     })
 
     // Fetch semua jadwal di area ini bulan ini
-    const { data: allAreaSchedules } = await supabase.from('schedules')
+    const { data: areaSchedulesRaw } = await supabase.from('schedules')
       .select('employee_id, outlet_id, tanggal, role_slot, is_temporary, shift')
       .in('outlet_id', outletIdsInArea)
       .gte('tanggal', from).lte('tanggal', to)
 
-    // Sort staff by departemen then nama
+    // Fetch juga jadwal staff area ini yang dijadwalkan DI LUAR area (penugasan keluar)
+    const areaEmpIdsArr = areaEmployees.map(e => e.id)
+    let outSchedules = []
+    if (areaEmpIdsArr.length > 0) {
+      const { data: outData } = await supabase.from('schedules')
+        .select('employee_id, outlet_id, tanggal, role_slot, is_temporary, shift')
+        .in('employee_id', areaEmpIdsArr)
+        .gte('tanggal', from).lte('tanggal', to)
+        .not('outlet_id', 'in', `(${outletIdsInArea.join(',')})`)
+      outSchedules = outData || []
+    }
+
+    // Gabung (hindari duplikat berdasarkan kombinasi unik)
+    const seen = new Set()
+    const allAreaSchedules = [...(areaSchedulesRaw || []), ...outSchedules].filter(s => {
+      const key = `${s.employee_id}|${s.outlet_id}|${s.tanggal}|${s.role_slot}`
+      if (seen.has(key)) return false
+      seen.add(key); return true
+    })
+
+    // Pastikan outlet luar area juga ada di outletMap (untuk inisial)
+    const extraOutletIds = [...new Set(allAreaSchedules.map(s => s.outlet_id).filter(id => !outletMap[id]))]
+    if (extraOutletIds.length > 0) {
+      const { data: extraOutletData } = await supabase.from('outlets')
+        .select('id, nama').in('id', extraOutletIds)
+      ;(extraOutletData || []).forEach(o => {
+        const inisial = o.nama.split(/\s+/).map(w => w[0]?.toUpperCase() || '').join('').slice(0, 4)
+        outletMap[o.id] = { nama: o.nama, inisial }
+      })
+    }
+
+    // Kumpulkan employee_id yang punya jadwal di area ini tapi TIDAK terdaftar di area (= penugasan sementara dari area lain)
+    const areaEmpIdSet = new Set(areaEmployees.map(e => e.id))
+    const tempEmpIds = [...new Set(
+      allAreaSchedules.map(s => s.employee_id).filter(id => !areaEmpIdSet.has(id))
+    )]
+    let extraEmps = []
+    if (tempEmpIds.length > 0) {
+      const { data: extraData } = await supabase.from('employees')
+        .select('id, nama, jabatan, departemen, piket_per_bulan')
+        .in('id', tempEmpIds)
+      extraEmps = extraData || []
+    }
+
+    // Sort staff by departemen then nama (gabung staff area + staff penugasan sementara)
     const DEPT_ORDER = ['Dokter Umum','Dokter','Perawat','Bidan','Laboratorium','Farmasi','Apoteker','Administrasi','Admin','Assist','Umum','Cleaning Service']
-    const sortedEmps = [...areaEmployees].sort((a, b) => {
+    const allEmpsForPrint = [...areaEmployees, ...extraEmps]
+    const sortedEmps = allEmpsForPrint.sort((a, b) => {
       const dA = DEPT_ORDER.indexOf(a.departemen) === -1 ? 99 : DEPT_ORDER.indexOf(a.departemen)
       const dB = DEPT_ORDER.indexOf(b.departemen) === -1 ? 99 : DEPT_ORDER.indexOf(b.departemen)
       if (dA !== dB) return dA - dB
