@@ -755,7 +755,7 @@ export default function Scheduling() {
                 {REQUEST_GROUPS.map(group => {
 
                   const count = scheduleRequests.filter(req =>
-                    group.dept.includes(req.employees?.departemen)
+                    group.dept.includes(req.employees?.departemen) && req.status === 'pending'
                   ).length
 
                   return (
