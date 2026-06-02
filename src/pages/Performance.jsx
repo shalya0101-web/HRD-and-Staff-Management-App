@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useOutlet } from '../lib/OutletContext'
+import { useAuth } from '../lib/AuthContext'
 import * as XLSX from 'xlsx'
 
 const BULAN_NAMES = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
@@ -27,6 +28,7 @@ function hitungNilaiAkhir(scores, points) {
 
 export default function Performance() {
   const { activeOutlet, activeOutletData } = useOutlet()
+  const { employee: currentUser } = useAuth()
   const [tab, setTab] = useState('penilaian') // 'penilaian' | 'setting'
   const [bulan, setBulan] = useState(today.getMonth() + 1)
   const [tahun, setTahun] = useState(today.getFullYear())
@@ -106,7 +108,7 @@ export default function Performance() {
   function bukaForm(emp) {
     const existing = reviews.find(r => r.employee_id === emp.id)
     setSelectedEmp(emp)
-    setFormReviewer(existing?.reviewer || '')
+    setFormReviewer(existing?.reviewer || currentUser?.nama || '')
     setFormCatatan(existing?.catatan || '')
     if (existing && allScores[existing.id]) {
       setFormScores({ ...allScores[existing.id] })
@@ -131,14 +133,14 @@ export default function Performance() {
 
     if (existing) {
       await supabase.from('performance_reviews').update({
-        reviewer: formReviewer, catatan: formCatatan
+        reviewer: formReviewer || currentUser?.nama || '', catatan: formCatatan
       }).eq('id', existing.id)
       // Hapus scores lama
       await supabase.from('performance_scores').delete().eq('review_id', existing.id)
     } else {
       const { data } = await supabase.from('performance_reviews').insert({
         employee_id: selectedEmp.id, outlet_id: activeOutlet,
-        bulan, tahun, reviewer: formReviewer, catatan: formCatatan,
+        bulan, tahun, reviewer: formReviewer || currentUser?.nama || '', catatan: formCatatan,
       }).select().single()
       reviewId = data?.id
     }
@@ -307,9 +309,9 @@ export default function Performance() {
               {/* Reviewer */}
               <div className="mb-5">
                 <label className="text-xs font-medium text-gray-600 block mb-1">Dinilai oleh</label>
-                <input type="text" placeholder="Nama penilai/HRD"
-                  value={formReviewer} onChange={e => setFormReviewer(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <input type="text" readOnly
+                  value={formReviewer || currentUser?.nama || ''}
+                  className="w-full border border-gray-200 bg-gray-50 text-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none" />
               </div>
 
               {/* Poin per kategori */}
