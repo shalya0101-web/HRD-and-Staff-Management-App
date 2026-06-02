@@ -213,14 +213,53 @@ export default function Scheduling() {
     if (!activeOutlet) { setError('Pilih outlet terlebih dahulu.'); return }
     setLoading(true); setError('')
     const dateStr = `${tahun}-${String(bulan+1).padStart(2,'0')}-${String(selectedDate).padStart(2,'0')}`
-    // Hapus jadwal lama tanggal+outlet ini, minta data terhapus untuk verifikasi
+
+    const empIds = Object.values(slotForm).filter(Boolean)
+    // Ambil outlet asal tiap staff + area tujuan, untuk tentukan is_temporary
+    let outletAsalMap = {}, isBedaAreaMap = {}
+    if (empIds.length > 0) {
+      const { data: eoData } = await supabase.from('employee_outlets')
+        .select('employee_id, outlet_id').in('employee_id', empIds)
+      // area outlet tujuan (aktif)
+      const { data: areaTujuanData } = await supabase.from('area_outlets')
+        .select('area_id').eq('outlet_id', activeOutlet)
+      const areaTujuan = (areaTujuanData || []).map(a => a.area_id)
+      // map outlet asal per staff (ambil yang pertama)
+      empIds.forEach(id => {
+        const eo = (eoData || []).find(r => r.employee_id === id)
+        outletAsalMap[id] = eo?.outlet_id || null
+      })
+      // cek beda area per outlet asal unik
+      const outletAsalUnik = [...new Set(Object.values(outletAsalMap).filter(Boolean))]
+      const areaAsalMap = {}
+      if (outletAsalUnik.length > 0) {
+        const { data: aoData } = await supabase.from('area_outlets')
+          .select('outlet_id, area_id').in('outlet_id', outletAsalUnik)
+        outletAsalUnik.forEach(oid => {
+          areaAsalMap[oid] = (aoData || []).filter(a => a.outlet_id === oid).map(a => a.area_id)
+        })
+      }
+      empIds.forEach(id => {
+        const asal = outletAsalMap[id]
+        if (asal && asal !== activeOutlet) {
+          const areaAsal = areaAsalMap[asal] || []
+          isBedaAreaMap[id] = !areaAsal.some(a => areaTujuan.includes(a))
+        } else {
+          isBedaAreaMap[id] = false
+        }
+      })
+    }
+
     const { data: deleted, error: delErr } = await supabase.from('schedules')
       .delete().eq('tanggal', dateStr).eq('outlet_id', activeOutlet).select()
     if (delErr) { setError('Gagal hapus jadwal lama: ' + delErr.message); setLoading(false); return }
-    console.log('Jadwal lama terhapus:', deleted?.length || 0, 'baris untuk', dateStr, activeOutlet)
+
     const inserts = Object.entries(slotForm).filter(([,v]) => v).map(([role, empId]) => ({
       tanggal: dateStr, employee_id: empId, role_slot: role, outlet_id: activeOutlet,
-      shift: slotShift[role] || 'full'
+      shift: slotShift[role] || 'full',
+      is_temporary: isBedaAreaMap[empId] || false,
+      outlet_asal_id: outletAsalMap[empId] || null,
+      catatan_penugasan: isBedaAreaMap[empId] ? 'Penugasan sementara lintas area' : '',
     }))
     if (inserts.length > 0) {
       const { error } = await supabase.from('schedules').insert(inserts)
@@ -880,6 +919,13 @@ export default function Scheduling() {
               {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">{error}</div>}
               {ROLE_SLOTS.map(role => {
                 const filtered = areaEmployees.filter(emp => role.dept.includes(emp.departemen))
+                // Pastikan staff yang sudah terpilih (mis. penugasan dari luar area) tetap muncul di option
+                const selectedId = slotForm[role.key]
+                let optionList = filtered
+                if (selectedId && !filtered.some(e => e.id === selectedId)) {
+                  const selEmp = allEmployees.find(e => e.id === selectedId)
+                  if (selEmp) optionList = [selEmp, ...filtered]
+                }
                 return (
                   <div key={role.key}>
                     <label className="text-xs font-medium text-gray-600 block mb-1">
@@ -889,21 +935,22 @@ export default function Scheduling() {
                     <div className="flex gap-2">
                       <select value={slotForm[role.key]||''} onChange={e=>{
                         const empId = e.target.value
-                        const emp = filtered.find(x=>x.id===empId)
+                        const emp = optionList.find(x=>x.id===empId)
                         setSlotForm({...slotForm,[role.key]:empId})
                         // auto-set shift ke default staff
                         if (emp?.default_shift) setSlotShift(prev=>({...prev,[role.key]:emp.default_shift}))
                       }}
                         className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="">-- Tidak ada / Kosong --</option>
-                        {filtered.length === 0
+                        {optionList.length === 0
                           ? <option disabled>Tidak ada staff {role.dept.join('/')} di area ini</option>
-                          : filtered.map(emp => {
+                          : optionList.map(emp => {
                             const sudah = hitungPiketBulanIni(emp.id)
                             const target = emp.piket_per_bulan || 15
+                            const luarArea = !areaEmpIds.includes(emp.id)
                             return (
                               <option key={emp.id} value={emp.id}>
-                                {emp.nama} ({sudah}/{target}){sudah>=target?' ⚠ penuh':''}
+                                {emp.nama} ({sudah}/{target}){sudah>=target?' ⚠ penuh':''}{luarArea?' · luar area':''}
                               </option>
                             )
                           })
