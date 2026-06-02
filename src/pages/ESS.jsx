@@ -217,12 +217,12 @@ function ESSJadwal({ employee, bulan, tahun }) {
     { key: 'assist', dept: ['Assist'] },
   ]
 
-  useEffect(() => { fetchMyOutlets() }, [employee])
+  useEffect(() => { fetchMyOutlets() }, [employee, bulan, tahun])
   useEffect(() => { if (selectedOutlet) { fetchAllSchedules(); fetchRequests() } }, [bulan, tahun, selectedOutlet])
 
   async function fetchMyOutlets() {
     if (!employee) return
-    // Outlet tempat staff terdaftar (bisa untuk ajukan jadwal)
+    // Outlet tempat staff terdaftar (bisa untuk ajukan jadwal) - selalu tampil
     const { data } = await supabase
       .from('employee_outlets')
       .select('outlet_id, outlets(id, nama)')
@@ -230,9 +230,13 @@ function ESSJadwal({ employee, bulan, tahun }) {
     const list = (data || []).map(r => r.outlets).filter(Boolean).map(o => ({ ...o, terdaftar: true }))
     const idSet = new Set(list.map(o => o.id))
 
-    // Outlet tempat staff punya jadwal (termasuk penugasan sementara lintas area) - hanya untuk lihat
+    // Outlet penugasan sementara - hanya tampil jika ada jadwal di BULAN yang dilihat
+    const from = `${tahun}-${String(bulan).padStart(2,'0')}-01`
+    const lastDay = new Date(tahun, bulan, 0).getDate()
+    const to = `${tahun}-${String(bulan).padStart(2,'0')}-${lastDay}`
     const { data: schedOutlets } = await supabase.from('schedules')
       .select('outlet_id').eq('employee_id', employee.id)
+      .gte('tanggal', from).lte('tanggal', to)
     const extraIds = [...new Set((schedOutlets || []).map(s => s.outlet_id).filter(id => id && !idSet.has(id)))]
     if (extraIds.length > 0) {
       const { data: extraOutlets } = await supabase.from('outlets')
@@ -241,7 +245,9 @@ function ESSJadwal({ employee, bulan, tahun }) {
     }
 
     setMyOutlets(list)
-    if (list.length > 0) setSelectedOutlet(list[0].id)
+    // Jaga selectedOutlet tetap valid; kalau outlet aktif hilang, balik ke outlet pertama
+    setSelectedOutlet(prev => (prev && idSet.has(prev)) ? prev : (list[0]?.id || ''))
+    setActiveIdx(prev => prev < list.length ? prev : 0)
   }
 
   async function fetchAllSchedules() {
